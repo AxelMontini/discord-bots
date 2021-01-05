@@ -39,6 +39,9 @@ struct Options {
     /// Instances of words older than this are deleted to save space and forget dead memes.
     #[structopt(long, default_value = "1800")]
     pub max_age: u64,
+    /// Max random boost to word count. If set to 3, a word said 8 times might be texted even if there's a word texted 10 times.
+    #[structopt(long, default_value = "10")]
+    pub max_boost: usize,
 }
 
 type WordMap = HashMap<String, SortedVec<DateTime<Utc>>>;
@@ -98,7 +101,6 @@ impl EventHandler for Reader {
         let time = msg.timestamp;
 
         for word in word_iterator {
-            println!("Added word '{}'", word);
             if let Some(value) = message_map.get_mut(&word) {
                 value.insert(time);
             } else {
@@ -111,6 +113,8 @@ impl EventHandler for Reader {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let options = Options::from_args();
+
+    println!("Starting PinoBot 🦜");
 
     WORD_REGEX
         .set(Regex::new(&options.word_regex).context("compiling regex")?)
@@ -132,6 +136,7 @@ async fn main() -> anyhow::Result<()> {
 
     tokio::spawn(async move {
         let mut rng = rand::rngs::StdRng::seed_from_u64(69);
+
         loop {
             let time: u64 = rng.gen_range(options.interval_low..=options.interval_high);
 
@@ -142,11 +147,13 @@ async fn main() -> anyhow::Result<()> {
             // Send message
             let data_read = data.read().await;
 
+            let mut boost = || rng.gen_range(0..=options.max_boost);
+
             let word = {
                 let words = data_read.get::<MessageMap>().unwrap().read().unwrap();
                 let maybe_word = words
                     .iter()
-                    .max_by_key(|(_word, instances)| instances.len())
+                    .max_by_key(|(_word, instances)| instances.len() + boost())
                     .map(|(word, _)| word.to_owned());
 
                 maybe_word.unwrap_or("A".into())
@@ -164,7 +171,7 @@ async fn main() -> anyhow::Result<()> {
                 if let Err(e) = channel.clone().say(&cache_and_http.http, message).await {
                     println!("Error sending message: {}", e);
                 } else {
-                    println!("Send message '{}' to channel '{:?}'", word, channel);
+                    println!("Send message '{}' to channel '{:?}' 🦜", word, channel);
                 }
             } else {
                 println!("Most recent channel is None, type some text to update it!");
