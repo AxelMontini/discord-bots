@@ -42,6 +42,9 @@ struct Options {
     /// Max random boost to word count. If set to 3, a word said 8 times might be texted even if there's a word texted 10 times.
     #[structopt(long, default_value = "10")]
     pub max_boost: usize,
+    /// If no words have been said, the bot will print this word as default. Leave blank to not print anything by default.
+    #[structopt(long)]
+    pub default_word: Option<String>,
 }
 
 type WordMap = HashMap<String, SortedVec<DateTime<Utc>>>;
@@ -149,44 +152,46 @@ async fn main() -> anyhow::Result<()> {
 
             let mut boost = || rng.gen_range(0..=options.max_boost);
 
-            let word = {
+            let maybe_word = {
                 let words = data_read.get::<MessageMap>().unwrap().read().unwrap();
                 let maybe_word = words
                     .iter()
                     .max_by_key(|(_word, instances)| instances.len() + boost())
                     .map(|(word, _)| word.to_owned());
 
-                maybe_word.unwrap_or("A".into())
+                maybe_word.or(options.default_word.clone())
             };
 
-            let recent_channel = data_read
-                .get::<RecentChannel>()
-                .expect("RecentChannel to be in data/context");
+            if let Some(word) = maybe_word {
+                let recent_channel = data_read
+                    .get::<RecentChannel>()
+                    .expect("RecentChannel to be in data/context");
 
-            let locked_channel = *recent_channel.read().expect("locking recent channel");
+                let locked_channel = *recent_channel.read().expect("locking recent channel");
 
-            if let Some(channel) = locked_channel.clone() {
-                let message = MessageBuilder::new().push(&word).build();
+                if let Some(channel) = locked_channel.clone() {
+                    let message = MessageBuilder::new().push(&word).build();
 
-                if let Err(e) = channel.clone().say(&cache_and_http.http, message).await {
-                    println!("Error sending message: {}", e);
+                    if let Err(e) = channel.clone().say(&cache_and_http.http, message).await {
+                        println!("Error sending message: {}", e);
+                    } else {
+                        println!("Send message '{}' to channel '{:?}' 🦜", word, channel);
+                    }
                 } else {
-                    println!("Send message '{}' to channel '{:?}' 🦜", word, channel);
+                    println!("Most recent channel is None, type some text to update it!");
                 }
-            } else {
-                println!("Most recent channel is None, type some text to update it!");
-            }
 
-            // Clean up old words
-            let older_than = Utc::now() - Duration::seconds(options.max_age as i64);
+                // Clean up old words
+                let older_than = Utc::now() - Duration::seconds(options.max_age as i64);
 
-            let mut words = data_read.get::<MessageMap>().unwrap().write().unwrap();
-            // Remove words older than older_than
-            for val in words.values_mut() {
-                val.remove_le(&older_than);
+                let mut words = data_read.get::<MessageMap>().unwrap().write().unwrap();
+                // Remove words older than older_than
+                for val in words.values_mut() {
+                    val.remove_le(&older_than);
+                }
+                // Remove entries with empty vectors to save space
+                words.retain(|_k, vec| vec.len() != 0);
             }
-            // Remove entries with empty vectors to save space
-            words.retain(|_k, vec| vec.len() != 0);
         }
     });
 
