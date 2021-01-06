@@ -5,10 +5,7 @@ use rand::prelude::*;
 use regex::Regex;
 use serenity::{
     async_trait,
-    model::{
-        channel::{Channel, Message},
-        id::ChannelId,
-    },
+    model::{channel::Message, id::ChannelId},
     prelude::*,
     utils::MessageBuilder,
 };
@@ -17,6 +14,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 use structopt::StructOpt;
+use tokio::runtime::{self};
 use utils::SortedVec;
 
 static WORD_REGEX: OnceCell<Regex> = OnceCell::new();
@@ -113,7 +111,7 @@ impl EventHandler for Reader {
     }
 }
 
-#[tokio::main]
+#[tokio::main(max_threads = 1)]
 async fn main() -> anyhow::Result<()> {
     let options = Options::from_args();
 

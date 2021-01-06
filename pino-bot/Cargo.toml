@@ -23,4 +23,5 @@ features = ["client", "builder", "model", "rustls_backend", "gateway"]
 
 [dependencies.tokio]
 version = "0.2"
+default-features = false
 features = ["macros", "time"]
